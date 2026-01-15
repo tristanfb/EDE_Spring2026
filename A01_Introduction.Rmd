@@ -1,6 +1,6 @@
 ---
 title: "Assignment 1: Introduction"
-author: "Tristan Frappire-Brinton"
+author: "Student Name"
 output: pdf_document
 ---
 
@@ -15,7 +15,7 @@ This exercise accompanies the introductory material in Environmental Data Analyt
 5.  When you have completed the assignment, **Knit** the text and code into a single PDF file.
 6.  After Knitting, submit the completed exercise (PDF file) to the appropriate assignment section on Canvas.
 
-7.  Initial here to acknowledge that you did not use AI at all in completing this assignment: TFB
+7.  Initial here to acknowledge that you did not use AI at all in completing this assignment: ___
 
 ---
 
@@ -24,23 +24,23 @@ Enter answers to the questions just below the >Answer: prompt.
 
 1. What are your previous experiences with data analytics, R, and Git? Include both formal and informal training.
 
-> Answer: Have taken a few graduate (during my MSc at University of Toronto) and undergraduate stats courses but they didn't use much environmental data. Also took a graduate intro to ArcGIS that did use spatial data, but I havene't taken any relevant coursees in my PhD at Duke. Have started using Git/GitHub with RStudio for some collaborative projects on how tourism affect deeforestation around protected areas in Madagascar, as well as some lemur populations around one protected area, but have just been learning on the fly and interested in learning best practices.
+> Answer: 
 
 2. Are there any components of the course about which you feel confident?
 
-> Answer: Using R in RStudio. General types of spatial data
+> Answer: 
 
 3. Are there any components of the course about which you feel apprehensive?
 
-> Answer: Git merge conflicts, being a more efficient coder, most efficient ways to access/manipulate spatial data
+> Answer: 
 
 4. Describe a dataset you have used in the past. Explain whether it was a primary or secondary dataset. 
 
-> Answer: Obserevations of lemurs during transect surveeys in foreests in Madagascar. Each entry is a sighting or lack of sighting along with species, distance from transect, and GPS coordinates. Primary data
+> Answer:
 
 5. Would you describe the day of the month as a nominal, ordinal, interval, or ratio number? Explain your reasoning.
 
-> Answer: Ordinal? Depends on the context maybe? They do measure the linear passage of time, so I'd say interval if you were interested in simply how much time has passed since the beginning of a month/year, but if you are more interested in things less related to amount of time passing then ordinal.
+> Answer: 
 
 ---
 
@@ -48,7 +48,7 @@ Enter answers to the questions just below the >Answer: prompt.
 
 Provide a link below to your forked course repository in GitHub. Make sure you have pulled all recent changes from the course repository and that you have updated your course README file, committed those changes, and pushed them to your GitHub account. 
 
-> Answer: https://github.com/tristanfb/EDE_Spring2026
+> Answer: 
 
 ---
 

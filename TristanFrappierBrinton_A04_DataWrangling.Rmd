@@ -60,6 +60,7 @@ dim(PM25_2019)
 **TIP**: All four datasets should have the same number of columns but unique record counts (rows). Do your datasets follow this pattern?
 >Yes. 8581-10592 rows.
 
+
 ## Wrangle individual datasets to create processed files.
 
 3. Change any date columns to be date objects.

@@ -1,0 +1,397 @@
+---
+title: "EDE_FinalProject_TFB"
+author: "TristanFB"
+date: "2026-04-21"
+output: html_document
+---
+
+# 1.INTRODUCTION: RATIONALE AND RESEARCH QUESTIONS
+
+Forest fires are one of the leading conservation threats to Madagascar's remaining forests, particularly in the tropical dry forests on the Western side of the island. Fire is used by local people to clear land for agriculture, but these fires can spread, intentionally or accidentally, into surrounding forests where their effects can be devastating to local species. Madagascar's dry forests contain high levels of endemic biodiversity, including emblematic species like the Critically Endangered Coquerel's sifaka (as featured in Zoboomafoo). Ankarafantsika National Park (ANP) is the largest remaining fragment of dry forest in Madagascar, but it has been incredibly threatened by fire in recent years. 2021 was a particularly bad year for fire, when it is estimated that 40 sq. km of land in the park was burned. 
+
+In an effort to protect the forest-dependent biodiversity found here, local conservation groups have started community-led fire-prevention initiatives to reduce fire use and limit their spread if they occur. One such organization, Planet Madagascar, has operated within ANP since 2016. They engage in safe fire use training with local communities, as well as hire local people for fire suppression patrols and the creation of fire breaks. These efforts have been ongoing for years, but it is difficult to know if they have been effective, as it is nearly impossible to eliminate fire entirely. Here I seek to assess if Planet Madagascar's fire prevention efforts were effective at reducing burned area within their area of operations in 2021. I will test this by running a logistic regression model with burned area across ANP as the outcome variable, and a series of environmental variables, including protection status, as predictors. I will assess if Protection Status significantly reduced the probability of a pixel within ANP burning in 2021. 
+
+I hypothesize that the number of burned pixels will be lower in Planet Madagascar's management area than in the rest of the park in 2021. This will be compared to the null hypothesis that Planet Madagascar's actions had no effect on burn area within their management zone.
+
+# 2. DATASET INFORMATION AND PREPARATION
+
+This work will continue previous research on mapping burned areas within ANP. This work involved using LANDSAT imagery to create maps of burned area within ANP for 2021. This was done using dNBR (difference in Normalized Burn Ratio) from images taken at various points between May 2021 and April 2022. The vast majority of fires in ANP occur between September and November, as this marks the driest period of year and the end of the dry season (April - November). The burned area map was generated using Google Earth Engine due to the ease of accessing LANDSAT images. This previous work resulted in the creation of a 30 m resolution burned area map for all of ANP in 2021 that will be used as the input for the following work. All subsequent analyses and comparisons to environmental variables were conducted de novo for this assignment.
+
+After creating a burned area map, environmental datasets were obtained for variables that have also been found to influence the probability of burning in other studies. Variables that are commonly used in fire modelling include elevation, slope, aspect, distance to road, distance to human settlement, distance to water, and land cover type. Unfortunately, maps of human settlements or rivers that were accurate to the necessary scale for this assignment were not available. National databases of settlements miss many of the small, sub-canopy villages present in ANP, and global river databases would need to be curated to exclude the many rivers in ANP that are dry/not present during the dry/fire season. I hope to work with local researchers to incorporate these variables into future analyses. 
+
+Environmental datasets were obtained for elevation, slope, aspect, distance to road, and land cover type. Elevation was obtained from NASA's ASTER DEM. Slope and aspect were derived from the ASTER DEM using the respective functions in ArcGIS Pro during previous work. Slope was calculated at 90 m resolution, as we believed this scale to be less susceptible to pixel-level error in elevation and more relevant to fire behaviour.  Road lines shapefiles were obtained directly from local residents and researchers in ANP. Land Cover classifications were obtained from the European Space Agency's WorldCover website (https://esa-worldcover.org/en/data-access) for the year 2020 (before any 2021 fires occurred). ESA data were downloaded at 10 m resolution and resampled to 30 m. I also obtained shapefiles for ANP (obtained from the Protected Planet database of protected areas) and the active management area of Planet Madagascar (obtained directly from Planet MAdagascar). All publically-available datasets used are open access and free to use.
+
+# 3. Exploration of Raw Data
+
+Below are the spatial datasets imported into the analyses before alteration. 
+
+```{r 1 data input, echo=FALSE, message=FALSE, error=FALSE, warning=FALSE}
+library(tidyverse)
+library(raster)
+library(sf)
+library(terra)
+#library(rgdal)
+library(here)
+library(leaflet)
+library(mapview)
+
+#need to make sure extents of all years (namely 2010, 2016) match before starting
+Burn<-raster(here("Data/FinalProjectData/finalSeverity_30m.tif"))
+ANP <- read_sf(here("Data/FinalProjectData/ANP_shapefile/ANP_Shapefile.shp"))
+PM_Area<-read_sf(here("Data/FinalProjectData/PM_shapefile/Ambanjabe_limit.shp"))
+LandCover <- raster(here("Data/FinalProjectData/ESA_WorldCover_10m_2020_v100_S18E045_Map.tif"))
+DEM <- raster(here("Data/FinalProjectData/ASTER_ExtractBox.tif"))
+Slope <- raster(here("Data/FinalProjectData/Slope_ASTER_90m.tif"))
+Aspect <- raster(here("Data/FinalProjectData/Aspect_ASTER2_30m.tif"))
+Roads <- read_sf(here("Data/FinalProjectData/Roads/Roads.shp"))
+
+#Select only ANP from the protected areas (ID 16)
+ANP <- ANP %>% filter(ID==16)
+
+#Project shapefiles and rasters to have the same coordinate reference system as the Burn map
+ANP <- st_transform(ANP, crs(Burn))
+
+#Clip the burn area to only include area within ANP
+Burn <- mask(Burn, ANP)
+```
+
+The Planet Madagascar management area is located on the East side of the park. Roads surround the park and one national highway runs through the park (Fig. 1).
+
+```{r mapview ANP, echo=FALSE, fig.cap ="Location of Planet Madagascar Area within Ankarafantsika National Park", message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+mapview(ANP, layer.name = "ANP Boundary", color = "black", col.regions = "darkgrey") +
+  mapview(PM_Area, layer.name = "Planet Madagascar Area", color = "blue") + 
+  mapview(Roads,layer.name = "Roads", color="purple")
+```
+**Figure 1.** Location of Planet Madagascar management area within Ankarafantsika National Park
+
+
+
+A large portion of the park burned in 2021. The largest areas were concentrated in the middle of the park and in the east (Fig. 2). 
+
+```{r mapview Burn Severity, echo=FALSE, fig.cap ="2021 Burn Severity in Ankarafantsika National Park, Madagascar", message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+mapview(as.factor(Burn$severity_class),
+        layer.name = "Burned Severity", at = seq(0, 4, by = 1)) +
+  mapview(PM_Area, 
+          layer.name = "Planet Madagascar Area", 
+          color = "lightblue", col.regions = "lightblue", 
+          alpha.regions = 0, lwd=2) + 
+  mapview(ANP, layer.name = "ANP Boundary", 
+          color = "green", col.regions = "green", 
+          alpha.regions = 0, lwd=2)
+```
+**Figure 2.** 2021 Burn Severity in Ankarafantsika National Park, Madagascar.
+
+
+
+
+Several valleys run through the park, and a large plateau exists along the southern border (Fig. 3).
+
+```{r mapview Elevation, echo=FALSE, fig.cap ="Elevation (m) in Ankarafantsika National Park, Madagascar", message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+mapview(DEM, layer.name = "Elevation (m)") + 
+  mapview(ANP, layer.name = "ANP Boundary", 
+          color = "green", col.regions = "green", 
+          alpha.regions = 0, lwd=2)
+```
+**Figure 3.** Elevation (m) in Ankarafantsika National Park, Madagascar.
+
+
+
+
+Several ridges within the park are visible from their high slopes, notably the end of the plateau at the southern border of the park (Fig. 4).
+
+```{r mapview Slope, echo=FALSE, fig.cap ="Slope (degrees) in Ankarafantsika National Park, Madagascar", message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+mapview(Slope, layer.name = "Slope") + 
+  mapview(ANP, layer.name = "ANP Boundary", 
+          color = "green", col.regions = "green", 
+          alpha.regions = 0, lwd=2)
+```
+**Figure 4.** Slope (degrees) across Ankarafantsika National Park, Madagascar.
+
+
+
+Few trends are visible from the raw aspect data, as there are not many large ridges within the park where aspect is consistent, but many smaller valleys (Fig. 5).
+
+```{r mapview Aspect, echo=FALSE, fig.cap ="Aspect (direction degrees, where 0 isnorth) in Ankarafantsika National Park, Madagascar", message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+mapview(Aspect, layer.name = "Aspect")+ 
+  mapview(ANP, layer.name = "ANP Boundary", 
+          color = "green", col.regions = "green", 
+          alpha.regions = 0, lwd=2)
+```
+**Figure 5.** Aspect (direction degrees, where 0 isnorth) across Ankarafantsika National Park, Madagascar
+
+
+
+ANP is visible purely from land cover data as it is the largest remaining fragment of Madagascar's dry forests, which are shown in darker colors with an ESA Land Cover key of 10 (Fig. 6). Water is shown in lighter/orange color (ESA key = 80).
+
+```{r mapview Land Cover, echo=FALSE, fig.cap ="ESA Land Cover Types in Ankarafantsika National Park, Madagascar", message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+mapview(LandCover$ESA_WorldCover_10m_2020_v100_S18E045_Map,
+        layer.name = "ESA Land Cover Type") + 
+  mapview(ANP, layer.name = "ANP Boundary", 
+          color = "green", col.regions = "green", 
+          alpha.regions = 0, lwd=1)
+```
+**Figure 6.** 2020 European Space Agency Land Cover Types in Ankarafantsika National Park, Madagascar.
+
+
+
+
+# 4. Data Wrangling
+
+All datasets were projected to the same coordinate system as the burn map (EPSG: 9001), resampled if raster data to match the exact extent and resolution of the burn data, and cropped only include area within ANP. Road maps were used to generate a raster dataset of distance to road (m), and burn severity maps were converted to binary maps of burned/unburned.
+```{r Data Wrangling 1, message=FALSE, error=FALSE, warning=FALSE}
+#I am creating an ANP shapefile with the LandCover crs so I can crop LandCover before manipulating it to reduce run time
+ANP2 <- st_transform(ANP, crs(LandCover))
+LandCover <- crop(LandCover, ANP2, mask = TRUE)
+
+#reduce resolution of LandCover before processing to reduce processing time
+LandCover <- aggregate(LandCover, fact=3, fun="modal")
+
+
+#crop and resample LandCover to match the extent of the Burn map
+LandCover <- projectRaster(LandCover, crs = crs(Burn), method = "ngb")
+LandCover <- resample( LandCover,Burn, method='ngb')
+
+#Create a raster of forest cover
+LandCover$Forest <- 0
+LandCover$Forest[LandCover$ESA_WorldCover_10m_2020_v100_S18E045_Map == 10] <- 1
+
+#Create a raster of water cover
+LandCover$Water <- 0
+LandCover$Water[LandCover$ESA_WorldCover_10m_2020_v100_S18E045_Map == 80] <- 1
+```
+
+
+```{r time invariant variables, message=FALSE, error=FALSE, warning=FALSE}
+#Project shapefiles and rasters to have the same coordinate reference system as the Burn map
+ANP <- st_transform(ANP, crs(Burn))
+PM_Area <- st_transform(PM_Area, crs(Burn))
+Roads <- st_transform(Roads, crs(Burn))
+DEM <- projectRaster(DEM, crs = crs(Burn), method = "bilinear")
+Slope <- projectRaster(Slope, crs = crs(Burn), method = "bilinear")
+Aspect <- projectRaster(Aspect, crs = crs(Burn), method = "bilinear")
+
+#Create a blank extent raster for later use setting extent
+blank <- raster()
+extent(blank) <- extent(Burn)
+res(blank) <- res(Burn)
+
+#create a raster of the Planet Madagascar area
+Protection <- rasterize(PM_Area, Burn, field = 1, background = 0)
+Roads_r <- rasterize(Roads, blank)
+road_dist <- distance(Roads_r)
+#Add the Protection status to the Burn raster
+Burn$Protection <- Protection
+
+#create a binary raster of just Burned and Unburned
+Burn_yn <- Burn
+Burn_yn[Burn_yn > 0 ] <- 1
+Burn_yn[Burn_yn < 0 ] <- 0
+
+#resample rasters to match the exact extent/alignment of the Burn raster
+DEM <- resample( DEM,Burn, method='bilinear')
+Slope <- resample( Slope,Burn, method='bilinear')
+Aspect <- resample( Aspect,Burn, method='bilinear')
+road_dist <- resample(road_dist,Burn, method='bilinear')
+```
+
+Road shapfiles were used to generate a distance to road raster.
+
+```{r mapview Road Distance, echo=FALSE, fig.cap ="Distance to Road (m) in Ankarafantsika National Park, Madagascar", message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+mapview(road_dist, layer.name = "Distance to Road (m)") + 
+  mapview(ANP, layer.name = "ANP Boundary", 
+          color = "green", col.regions = "green", 
+          alpha.regions = 0, lwd=2)
+```
+
+A binary burn map was generated for use in logistic regression.
+
+```{r mapview Burned Area, echo=FALSE, fig.cap ="2021 Burn Area in Ankarafantsika National Park, Madagascar", message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+
+mapview(as.factor(Burn_yn$severity_class), col.regions = c("black", "red"),
+        layer.name = "Burned Area (1 = Burned)")+
+mapview(PM_Area, layer.name = "Planet Madagascar Area", color = "lightblue", col.regions = "lightblue", alpha.regions = 0) + 
+  mapview(ANP, layer.name = "ANP Boundary", 
+          color = "green", col.regions = "green", 
+          alpha.regions = 0, lwd=1)
+```
+
+In preparation for logistic regression, all raster pixels were converted to points for ease of manipulation. Aspect values were also sorted into their cardinal directions (North South, East, and West). 
+
+```{r Model Prep}
+LandCover_point <- as.data.frame(rasterToPoints(LandCover))
+names(road_dist)[names(road_dist) == 'layer'] <- 'road_dist'
+road_dist_point <- as.data.frame(rasterToPoints(road_dist))
+#names(Aspect)[names(Aspect) == 'layer'] <- 'Aspect'
+Aspect_point <- as.data.frame(rasterToPoints(Aspect))
+#names(Slope)[names(Slope) == 'layer'] <- 'Slope'
+Slope_point <- as.data.frame(rasterToPoints(Slope))
+#names(DEM)[names(DEM) == 'layer'] <- 'Elevation'
+DEM_point <- as.data.frame(rasterToPoints(DEM))
+
+
+#Classify the aspect values(degrees) into cardinal directions
+Aspect_point$aspect_dir <- 0
+Aspect_point$aspect_dir[Aspect_point$Aspect_ASTER2_30m<0] <- "flat"
+Aspect_point$aspect_dir[Aspect_point$Aspect_ASTER2_30m>=0 & Aspect_point$Aspect_ASTER2_30m<45] <- "north"
+Aspect_point$aspect_dir[Aspect_point$Aspect_ASTER2_30m>=315] <- "north"
+Aspect_point$aspect_dir[Aspect_point$Aspect_ASTER2_30m>=45 & Aspect_point$aspect<135] <- "east"
+Aspect_point$aspect_dir[Aspect_point$Aspect_ASTER2_30m>=135 & Aspect_point$Aspect_ASTER2_30m<225] <- "south"
+Aspect_point$aspect_dir[Aspect_point$Aspect_ASTER2_30m>=225 & Aspect_point$Aspect_ASTER2_30m<315] <- "west"
+
+#Compile all of the rasters into one raster
+raster_points <- as.data.frame(rasterToPoints(Burn_yn))
+raster_points<- left_join(raster_points, DEM_point, by = c("x", "y"))
+raster_points<- left_join(raster_points, Aspect_point, by = c("x", "y"))
+raster_points<- left_join(raster_points, Slope_point, by = c("x", "y"))
+
+raster_points<- left_join(raster_points, road_dist_point, by = c("x", "y"))
+raster_points<- left_join(raster_points, LandCover_point, by = c("x", "y"))
+raster_points <- raster_points %>% filter(Water != 1)
+```
+
+
+# 5. Data Exploration
+Before performing logistic regression, I investigated the relationships between individual predictors and the proportion of pixels burned. 
+
+
+```{r Data Exploration}
+#round predictor variables to values that will be used to bin samples
+raster_points$Elevation_round5 <- round(raster_points$ASTER_ExtractBox / 5) * 5
+raster_points$Slope_round <- round(raster_points$Slope)
+raster_points$Road_round10 <- round(raster_points$road_dist / 100) * 100
+
+#bin samples and calculate the proportion of pixels burned within each bin
+raster_points_LandType <- raster_points %>%
+  group_by(Forest, Protection) %>%
+  summarize(BurnProportion  = mean(severity_class, na.rm = TRUE))
+
+raster_points_LandType$BurnProportion <- round(raster_points_LandType$BurnProportion*1000)/10
+
+raster_points_DEM <- raster_points %>%
+  group_by(Elevation_round5 ) %>%
+  summarize(BurnProportion  = mean(severity_class, na.rm = TRUE))
+
+raster_points_Slope <- raster_points %>%
+  group_by(Slope_round ) %>%
+  summarize(BurnProportion  = mean(severity_class, na.rm = TRUE))
+
+raster_points_Roads <- raster_points %>%
+  group_by(Road_round10) %>%
+  summarize(BurnProportion  = mean(severity_class, na.rm = TRUE))
+```
+
+
+| | Unprotected |  Protected |
+|:---      | ----:   | ---:     |
+| Forest     |  `r raster_points_LandType$BurnProportion[3]` |  `r  raster_points_LandType$BurnProportion[4]`    |
+| Grassland     |  `r raster_points_LandType$BurnProportion[1]`  | `r  raster_points_LandType$BurnProportion[2]`    |
+**Table 1.** Percentage of forest and grassland burned in ANP in 2021
+
+
+
+The proportion of burned pixels seems to decrease somewhat linearly until 20,000 m from road, at which point the proportion of burned pixels increase sharply (Fig. 7A). We can see from histograms that the vast majority of pixels are within 20 km of a road (Fig. 7B), meaning that a decreasing monotonic relationship with distance to road would describe the relationship to burning for most pixels. Future analyses should consider if a non-monotonic relationship should be implemented for pixels more than 20 km from a road, or if this relationship is a byproduct of correlation with other factors for these relatively few pixels.
+
+```{r Road Distance Burn, echo=FALSE,message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+ggplot(raster_points_Roads, aes(x=Road_round10, y=BurnProportion)) + geom_line() +
+  labs(x = "Distance to Road (m)", y = "BurnProportion") + xlim(0, 26000)+
+  labs(title = "A)",
+    x = "Distance to Road (m)",
+    y = "Proportion of Pixels Burned")
+
+ggplot(na.omit(raster_points), aes(x = road_dist)) +
+  geom_histogram(bins = 20, fill = "steelblue", color = "black") +
+  facet_wrap(~ factor(severity_class,
+                      levels = c(0, 1),
+                      labels = c("Unburned", "Burned"))) +
+  theme_minimal() +
+  labs(
+    title = "B)",
+    x = "Distance to Road (m)",
+    y = "Pixel Count"
+  )
+```
+**Figure 7.** Comparison of Distance to Road and Burn Status. A) The proportion of pixels of within each 100 m bin of distance to road (m) that burned. B) Histograms of the distance to road of unburned and burned pixels.
+
+
+
+Elevation appears to have a fairly linear relationship with the proportion of pixels burned, with fewer burned pixels at higher elevation (Fig. 8).
+
+```{r Elevation Burn, echo=FALSE,  message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+ggplot(raster_points_DEM, aes(x=Elevation_round5, y=BurnProportion)) + geom_line() +
+  labs(
+    x = "Elevation",
+    y = "BurnProportion"
+  ) + geom_smooth(method = "lm")+
+  labs(title = "A)",
+    x = "Elevation (m)",
+    y = "Proportion of Pixels Burned")
+
+ggplot(na.omit(raster_points), aes(x = ASTER_ExtractBox)) +
+  geom_histogram(bins = 20, fill = "steelblue", color = "black") +
+  facet_wrap(~ factor(severity_class,
+                      levels = c(0, 1),
+                      labels = c("Unburned", "Burned"))) +
+  theme_minimal() +
+  labs(
+    title = "B)",
+    x = "Elevation (m)",
+    y = "Pixel Count"
+  )
+```
+**Figure 8.** Comparison of Elevation and Burn Status. A) The proportion of pixels of within each 5 m bin of elevation (m) that burned. B) Histograms of the elevation of unburned and burned pixels.
+
+
+
+
+Slope does not appear to have a strictly linear monotonic relationship with proportion of pixels burned (Fig. 9). The vast majority of pixels have a slope below 5 degrees, for which the relationship appears to be linear and increasing, but this relationship may not accurately describe the fire behaviour of steeper slopes.
+
+```{r Slope Burn, echo=FALSE,  message=FALSE, error=FALSE, warning=FALSE, fig.align="left", fig.height=3.5,}
+ggplot(raster_points_Slope, aes(x=Slope_round, y=BurnProportion)) + geom_line() +
+  labs(
+    x = "Slope",
+    y = "BurnProportion"
+  ) +
+  labs(title = "A)",
+    x = "Slope (degrees)",
+    y = "Proportion of Pixels Burned")
+
+ggplot(na.omit(raster_points), aes(x = Slope_ASTER_90m)) +
+  geom_histogram(bins = 20, fill = "steelblue", color = "black") +
+  facet_wrap(~ factor(severity_class,
+                      levels = c(0, 1),
+                      labels = c("Unburned", "Burned"))) +
+  theme_minimal()  +
+  labs(
+    title = "B)",
+    x = "Slope (degrees)",
+    y = "Pixel Count"
+  )
+```
+**Figure 9.** Comparison of Slope and Burn Status. A) The proportion of pixels of within each degree of slope that burned. B) Histograms of the slope of unburned and burned pixels.
+
+
+# 6 Data analysis
+```{r final models}
+#run logistic regression model
+log_model <- glm(data = na.omit(raster_points) , severity_class ~ ASTER_ExtractBox + aspect_dir + as.factor(Protection) + Slope_ASTER_90m + road_dist +as.factor(Forest) , family = binomial)
+summary(log_model)
+
+#save results
+results <- summary(log_model)
+results2 <- as.data.frame(results$coefficients)
+results2$variable <- rownames(results2)
+```
+
+Protection from Planet Madagascar was significantly (p<2e-16) correlated with a lower probability of burning.  The estimated effect size of `r results2$Estimate[results2$variable=="as.factor(Protection)1"]`in the logistic regression corresponds to a `r round(100*(1-2.718281828^ results2$Estimate[results2$variable=="as.factor(Protection)1"])*10)/10` % reduction in the probability of burning for any given pixel.
+
+Other environmental covariates were also significantly related to the proportion of burned pixels. Odds of a pixel burning increased with slope and forest cover, and decreased with distance to road and elevation. The directions of these changes all match
+
+# 7. Discussion and Limitations
+These preliminary results suggest that Planet Madagascar's actions have substantially reduced burn area (by over 90%) within their area of operations. These results are promising for the continuation of conservation efforts that employ and are co-managed by local communities. However, results will likely need to be confirmed through further analyses including additional years and environmental covariates.
+
+River and village data were not available for this study and will require further curation. Most villages around ANP are located on roads, so the distance to road variable may have served as an approximation for distance to village. Rivers are also likely to be highly correlated with low elevations, however there may have been meaningful variation in burn frequency missed by lacking these data. Particularly, a small river runs through the center of the Planet Madagascar management area, and this close proximity to water may have contributed to the lower fire frequency in their region regardless of conservation efforts. Estimates may also be hampered by imperfections in satellite burn classification. Sub-canopy burning is rare in ANP, as most canopies become relatively open during the dry season when fires occur, but it is possible that the selected dNBR thresholds used to make the burn map missed some burned areas or included some false positive burned areas. This is always a challenge in remote sensing, and increasing the temporal scale would also help alleviate the impacts of the noise created by these imperfections by greatly increasing the sample size.
+
+# 8. Conclusion
+In conclusion, analysis of satellite imagery suggests that burned areas were significantly lower in the management area of conservation group Planet Madagascar, which suggests that their extensive fire prevention efforts are effective at conserving the dry forests ecosystem. However, additional research should be done to confirm these findings and increase our understanding of effective conservation management. 
+
+# 9. References
